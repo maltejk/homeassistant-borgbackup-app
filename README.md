@@ -8,6 +8,8 @@ manager. It exposes an HTTP API on port 8774 for the
 optionally runs [borgmatic](https://torsion.org/borgmatic/) on a cron schedule for
 standalone encrypted, deduplicated backups independent of HA.
 
+This is AI generated code. Please find the instructions in [copilot-instructions.md](.github/copilot-instructions.md).
+
 ---
 
 ## Features
