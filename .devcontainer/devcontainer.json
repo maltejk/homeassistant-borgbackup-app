@@ -1,0 +1,6 @@
+{
+    "image": "python:3.14.3",
+    "remoteEnv": {
+        "GIT_EDITOR": "code --wait"
+    }
+}
