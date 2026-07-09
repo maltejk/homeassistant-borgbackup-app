@@ -23,6 +23,8 @@ API:
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import json
 import logging
 import os
@@ -49,6 +51,34 @@ KEEP_MONTHLY = int(os.environ.get("BORGBACKUP_KEEP_MONTHLY", "6"))
 BACKUP_DIR = Path("/backup")
 CHUNK_SIZE = 1024 * 1024  # 1 MiB streaming chunks
 ARCHIVE_PREFIX = "ha-"
+
+
+# ---------------------------------------------------------------------------
+# Comment (metadata) encoding
+# ---------------------------------------------------------------------------
+#
+# The HA backup metadata is stored in the Borg archive *comment*. Borg runs the
+# comment through its placeholder engine on ``create``, so any literal ``{`` /
+# ``}`` (which JSON is full of) is interpreted as a placeholder and rejected
+# with "Invalid placeholder". To store arbitrary JSON safely we base64-encode
+# it on write and decode it on read.
+
+
+def _encode_comment(meta_json: str) -> str:
+    """Encode metadata JSON for safe storage in a Borg archive comment."""
+    return base64.b64encode(meta_json.encode("utf-8")).decode("ascii")
+
+
+def _decode_comment(comment: str) -> str:
+    """Decode a stored comment back to metadata JSON.
+
+    Falls back to treating the comment as raw JSON for forward/backward
+    compatibility with archives that were not base64-encoded.
+    """
+    try:
+        return base64.b64decode(comment.encode("ascii"), validate=True).decode("utf-8")
+    except (binascii.Error, ValueError, UnicodeDecodeError):
+        return comment
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +146,7 @@ async def _list_archives() -> list[dict]:
             info = json.loads(comment_result.stdout)
             comment = info["archives"][0].get("comment", "")
             if comment:
-                meta = json.loads(comment)
+                meta = json.loads(_decode_comment(comment))
                 backups.append(meta)
         except Exception as exc:  # noqa: BLE001
             _LOG.warning("Skipping archive %s: %s", archive["name"], exc)
@@ -181,7 +211,7 @@ async def upload_backup(request: web.Request) -> web.Response:
                     [
                         "borg", "create",
                         "--stdin-name", f"{backup_id}.tar",
-                        "--comment", backup_meta_json,
+                        "--comment", _encode_comment(backup_meta_json),
                         f"{REPO_PATH}::{archive_name}",
                         "-",
                     ],
@@ -205,11 +235,34 @@ async def download_backup(request: web.Request) -> web.StreamResponse:
     backup_id = request.match_info["backup_id"]
     archive_name = f"{ARCHIVE_PREFIX}{backup_id}"
 
-    # Verify the archive exists first
+    # Verify the archive exists first so a missing backup is a clean 404 rather
+    # than a 200 with an empty/aborted body.
     try:
         await _run_borg("info", f"{REPO_PATH}::{archive_name}")
     except subprocess.CalledProcessError:
         raise web.HTTPNotFound(reason=f"Backup {backup_id} not found")
+
+    proc = await asyncio.create_subprocess_exec(
+        "borg", "extract", "--stdout", f"{REPO_PATH}::{archive_name}",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=_borg_env(),
+    )
+    assert proc.stdout is not None
+    assert proc.stderr is not None
+
+    # Drain stderr concurrently: borg can emit progress/warnings there, and if we
+    # only ever read stdout, a full stderr pipe (~64 KiB) would deadlock borg.
+    stderr_chunks: list[bytes] = []
+
+    async def _drain_stderr() -> None:
+        while True:
+            data = await proc.stderr.read(CHUNK_SIZE)
+            if not data:
+                break
+            stderr_chunks.append(data)
+
+    stderr_task = asyncio.create_task(_drain_stderr())
 
     response = web.StreamResponse(
         status=200,
@@ -217,33 +270,37 @@ async def download_backup(request: web.Request) -> web.StreamResponse:
     )
     await response.prepare(request)
 
+    client_gone: BaseException | None = None
     try:
-        loop = asyncio.get_running_loop()
-        proc = await loop.run_in_executor(
-            None,
-            lambda: subprocess.Popen(
-                [
-                    "borg", "extract",
-                    "--stdout",
-                    f"{REPO_PATH}::{archive_name}",
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=_borg_env(),
-            ),
-        )
         while True:
-            chunk = await loop.run_in_executor(None, proc.stdout.read, CHUNK_SIZE)
+            chunk = await proc.stdout.read(CHUNK_SIZE)
             if not chunk:
                 break
             await response.write(chunk)
-        proc.wait()
-        if proc.returncode != 0:
-            _LOG.error("borg extract failed with code %d", proc.returncode)
+    except (ConnectionError, asyncio.CancelledError) as exc:
+        # The client disconnected mid-download. Stop borg so it doesn't block
+        # forever on a stdout pipe that no one is reading.
+        client_gone = exc
+        proc.terminate()
+    finally:
+        returncode = await proc.wait()
+        await stderr_task
 
-    except Exception as exc:
-        _LOG.error("Download failed: %s", exc)
-        raise
+    if client_gone is not None:
+        _LOG.warning("Download of %s aborted by client", backup_id)
+        raise client_gone
+
+    if returncode != 0:
+        stderr_text = b"".join(stderr_chunks).decode("utf-8", "replace").strip()
+        _LOG.error("borg extract failed (code %d): %s", returncode, stderr_text)
+        # We already committed a 200 and streamed a partial, corrupt body. We
+        # must NOT finish the chunked response cleanly, or the client would
+        # accept the truncated data as a complete backup. Abort the connection
+        # so the client sees an incomplete transfer and treats it as an error.
+        transport = request.transport
+        if transport is not None:
+            transport.close()
+        raise web.HTTPInternalServerError(reason="borg extract failed")
 
     await response.write_eof()
     return response
