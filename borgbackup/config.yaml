@@ -18,9 +18,14 @@ startup: services
 boot: auto
 init: false
 homeassistant_api: false
-hassio_api: false
+hassio_api: true
 hassio_role: default
 host_network: false
+
+# Publish a discovery message so the BorgBackup integration is offered for
+# automatic setup in Home Assistant (handled in run.sh via the Supervisor API).
+discovery:
+  - borgbackup
 
 ports:
   8774/tcp: 8774

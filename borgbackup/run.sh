@@ -8,12 +8,41 @@ API_KEY_FILE=/data/api_key
 # ---------------------------------------------------------------------------
 if [ ! -f "$API_KEY_FILE" ]; then
     bashio::log.info "Generating new API key..."
-    API_KEY=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 40 | head -n 1)
+    # Use python's secrets module: a single process with no pipeline, so it
+    # cannot abort run.sh via SIGPIPE (exit 141) under `set -e`/pipefail.
+    API_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(30))")
     echo "$API_KEY" > "$API_KEY_FILE"
     chmod 600 "$API_KEY_FILE"
 fi
 
 API_KEY=$(cat "$API_KEY_FILE")
+bashio::log.info "BorgBackup API key: ${API_KEY}"
+bashio::log.info "Enter this key in the BorgBackup integration to connect."
+
+# ---------------------------------------------------------------------------
+# Publish Supervisor discovery so the integration is offered for auto-setup.
+#
+# Home Assistant routes a discovery message to the config flow whose domain
+# matches the "service" field, calling its async_step_hassio with "config".
+# Requires hassio_api: true and a matching "discovery:" entry in config.yaml.
+# ---------------------------------------------------------------------------
+if bashio::supervisor.ping 2>/dev/null; then
+    # Build the JSON config with python so the API key is safely encoded.
+    export BORG_DISCOVERY_KEY="$API_KEY"
+    DISCOVERY_CONFIG=$(python3 -c "import json, os; print(json.dumps({'host': 'local-borgbackup', 'port': 8774, 'api_key': os.environ['BORG_DISCOVERY_KEY']}))")
+    unset BORG_DISCOVERY_KEY
+    if curl -sf -X POST \
+        -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "{\"service\": \"borgbackup\", \"config\": ${DISCOVERY_CONFIG}}" \
+        "http://supervisor/discovery" > /dev/null; then
+        bashio::log.info "Published discovery to Supervisor; integration can auto-configure."
+    else
+        bashio::log.warning "Could not publish discovery message (setup the integration manually)."
+    fi
+else
+    bashio::log.info "Supervisor not reachable; skipping discovery."
+fi
 
 # ---------------------------------------------------------------------------
 # Write borgmatic config from add-on options
