@@ -36,6 +36,7 @@ options:
   repo_path: ""
   passphrase: ""
   ssh_private_key: ""
+  init_if_not_exists: true
   keep_daily: 7
   keep_weekly: 4
   keep_monthly: 6
@@ -46,6 +47,7 @@ schema:
   repo_path: str
   passphrase: str
   ssh_private_key: str
+  init_if_not_exists: bool
   keep_daily: int
   keep_weekly: int
   keep_monthly: int

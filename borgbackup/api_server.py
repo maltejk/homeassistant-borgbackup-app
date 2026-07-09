@@ -47,6 +47,9 @@ PASSPHRASE = os.environ.get("BORGBACKUP_PASSPHRASE", "")
 KEEP_DAILY = int(os.environ.get("BORGBACKUP_KEEP_DAILY", "7"))
 KEEP_WEEKLY = int(os.environ.get("BORGBACKUP_KEEP_WEEKLY", "4"))
 KEEP_MONTHLY = int(os.environ.get("BORGBACKUP_KEEP_MONTHLY", "6"))
+INIT_IF_NOT_EXISTS = (
+    os.environ.get("BORGBACKUP_INIT_IF_NOT_EXISTS", "true").lower() == "true"
+)
 
 BACKUP_DIR = Path("/backup")
 CHUNK_SIZE = 1024 * 1024  # 1 MiB streaming chunks
@@ -123,6 +126,51 @@ async def _run_borg(*args: str) -> subprocess.CompletedProcess:
             env=_borg_env(),
         ),
     )
+
+
+def _ensure_repo() -> None:
+    """Create the Borg repository on first run if it does not exist yet.
+
+    Controlled by the ``init_if_not_exists`` add-on option. This only inits when
+    borg reports the repository is genuinely missing — a passphrase or
+    connectivity error is surfaced rather than being silently "fixed" by
+    re-initialising over a repo we simply failed to open. Runs synchronously at
+    startup, before the event loop starts.
+    """
+    if not INIT_IF_NOT_EXISTS:
+        return
+    probe = subprocess.run(
+        ["borg", "info", REPO_PATH],
+        capture_output=True,
+        text=True,
+        env=_borg_env(),
+    )
+    if probe.returncode == 0:
+        return
+    stderr = (probe.stderr or "").strip()
+    if "does not exist" not in stderr.lower():
+        _LOG.warning(
+            "Could not verify repository at %s; not auto-initialising: %s",
+            REPO_PATH,
+            stderr,
+        )
+        return
+    encryption = "repokey" if PASSPHRASE else "none"
+    _LOG.info(
+        "Repository not found at %s; initialising (encryption=%s)",
+        REPO_PATH,
+        encryption,
+    )
+    init = subprocess.run(
+        ["borg", "init", "--encryption", encryption, REPO_PATH],
+        capture_output=True,
+        text=True,
+        env=_borg_env(),
+    )
+    if init.returncode == 0:
+        _LOG.info("Repository initialised at %s", REPO_PATH)
+    else:
+        _LOG.error("borg init failed: %s", (init.stderr or "").strip())
 
 
 async def _list_archives() -> list[dict]:
@@ -340,5 +388,6 @@ def create_app() -> web.Application:
 
 
 if __name__ == "__main__":
+    _ensure_repo()
     app = create_app()
     web.run_app(app, host="0.0.0.0", port=8774)

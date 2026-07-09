@@ -46,13 +46,17 @@ This is AI generated code. Please find the instructions in [copilot-instructions
 | `repo_path`        | *(required)*  | Borg repo path: local `/mnt/borg` or SSH `user@host:/path/to/repo` |
 | `passphrase`       | `""`          | Repo encryption passphrase                                         |
 | `ssh_private_key`  | `""`          | Full content of the SSH private key (PEM format) for remote repos  |
+| `init_if_not_exists` | `true`      | Create the repo automatically on first start if it doesn't exist   |
 | `keep_daily`       | `7`           | Daily archives to retain (0 = disabled)                            |
 | `keep_weekly`      | `4`           | Weekly archives to retain (0 = disabled)                           |
 | `keep_monthly`     | `6`           | Monthly archives to retain (0 = disabled)                          |
 | `schedule_enabled` | `false`       | Enable standalone borgmatic cron schedule                          |
 | `schedule_cron`    | `"0 3 * * *"` | Cron expression for scheduled borgmatic runs                       |
 
-> **Note:** The Borg repository must be initialised before use:
+> **Note:** With `init_if_not_exists: true` (the default) the add-on initialises
+> the repository automatically on first start — `repokey` encryption when a
+> `passphrase` is set, otherwise unencrypted. Set it to `false` to manage the
+> repo yourself:
 > ```bash
 > borg init --encryption=repokey user@host:/path/to/repo
 > ```
@@ -116,8 +120,9 @@ that HA can reach port 8774. Check the add-on network configuration.
 **"Invalid API key"** — Find the current key in the add-on log at startup, or read
 `/data/api_key` inside the container.
 
-**Borg error during upload** — The repository must exist before first use. Run
-`borg init` manually or check the add-on log for the full borg error message.
+**Borg error during upload** — The repository is auto-initialised on first start
+when `init_if_not_exists` is enabled. If you disabled it, run `borg init`
+manually. Otherwise check the add-on log for the full borg error message.
 
 ---
 

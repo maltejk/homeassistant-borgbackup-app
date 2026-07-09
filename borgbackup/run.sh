@@ -50,6 +50,7 @@ fi
 REPO_PATH=$(bashio::config 'repo_path')
 PASSPHRASE=$(bashio::config 'passphrase')
 SSH_PRIVATE_KEY=$(bashio::config 'ssh_private_key')
+INIT_IF_NOT_EXISTS=$(bashio::config 'init_if_not_exists')
 KEEP_DAILY=$(bashio::config 'keep_daily')
 KEEP_WEEKLY=$(bashio::config 'keep_weekly')
 KEEP_MONTHLY=$(bashio::config 'keep_monthly')
@@ -108,6 +109,7 @@ bashio::log.info "Starting BorgBackup API server on port 8774..."
 export BORGBACKUP_API_KEY="$API_KEY"
 export BORGBACKUP_REPO_PATH="$REPO_PATH"
 export BORGBACKUP_PASSPHRASE="$PASSPHRASE"
+export BORGBACKUP_INIT_IF_NOT_EXISTS="$INIT_IF_NOT_EXISTS"
 export BORGBACKUP_KEEP_DAILY="$KEEP_DAILY"
 export BORGBACKUP_KEEP_WEEKLY="$KEEP_WEEKLY"
 export BORGBACKUP_KEEP_MONTHLY="$KEEP_MONTHLY"
