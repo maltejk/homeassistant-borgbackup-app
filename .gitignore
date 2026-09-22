@@ -13,9 +13,6 @@ __pycache__/
 *.swo
 *~
 
-# Docker build cache
-.dockerignore
-
 # Secrets (never commit real keys)
 data/
 *.key
