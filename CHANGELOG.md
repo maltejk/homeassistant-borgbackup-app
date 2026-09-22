@@ -5,6 +5,79 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-09-22
+
+### Removed
+
+- **Standalone borgmatic scheduling** (`schedule_enabled`, `schedule_cron` options)
+  — it never worked (BusyBox `crond` doesn't read `/etc/cron.d`, the source
+  directory didn't exist, the config format is deprecated in borgmatic 2.0, the
+  passphrase wasn't YAML-quoted, and its archive-name-format collided with the
+  add-on's own prune glob). Home Assistant is the only supported way to trigger
+  a backup now; `borgmatic` was also dropped from the image.
+- Unsupported architectures `armhf`, `armv7`, `i386` — no longer built by Home
+  Assistant.
+
+### Changed (breaking)
+
+- `keep_daily`/`keep_weekly`/`keep_monthly` now default to `0` (disabled).
+  Home Assistant has managed backup retention itself since 2025.1; the add-on's
+  own pruning was fighting HA's own deletion and is now an explicit opt-in
+  safety net instead of a silent default.
+- Port `8774` is no longer exposed on the host by default — the integration
+  reaches the add-on over the internal Supervisor network. Enable it manually
+  if something outside HA needs direct access.
+- `repo_path` has no default and startup now aborts with a clear error
+  (`bashio::config.require`) if it's unset, instead of starting with a broken
+  configuration.
+- SSH private key is now written to `/root/.ssh/id_borg` (was `id_rsa`).
+
+### Fixed
+
+- **Upload no longer buffers the whole backup to disk first** — streams
+  directly into `borg create`'s stdin, halving the disk space a backup needs
+  and removing a leaked file descriptor and a synchronous write on the event
+  loop.
+- **`borg compact` now runs after prune/delete** — since borg 1.2, `prune`/
+  `delete` alone don't reclaim disk space; the repository grew unbounded
+  without it.
+- **Discovery hostname** — uses `bashio::addon.hostname` instead of a
+  hardcoded `local-borgbackup`, which only happens to be correct for a
+  locally-installed add-on (an add-on installed from a repository has a
+  different real hostname, and discovery couldn't be resolved).
+- **Concurrent requests no longer fail on the repo lock** — all borg calls
+  now share a generous `--lock-wait 600` and an in-process lock, instead of
+  borg's 1-second default lock-wait causing spurious failures while an
+  upload is running.
+- **Backup listing no longer does N+1 `borg info` calls** (and no longer
+  silently drops an archive from the list if one of those calls failed) —
+  a single `borg list --json --format '{comment}'` call now reads every
+  archive's metadata.
+- **404 is now only returned when the archive is actually missing** — any
+  other borg failure (lock timeout, unreachable repo) is a 500 instead of
+  being misreported as "not found".
+- `backup_id` is validated against a strict charset before it can reach a
+  borg archive name (previously a path-traversal vector).
+- API key comparison uses a constant-time comparison (`hmac.compare_digest`).
+- `list`/`info`/SSH calls now have bounded timeouts, and SSH sets
+  `StrictHostKeyChecking=accept-new` against a known_hosts file persisted at
+  `/data/known_hosts` — a container has no interactive prompt to accept a new
+  host key otherwise, so a fresh remote repo would previously fail closed.
+- The 8190-byte header limit no longer 400s a large `X-Backup-Meta` (raised
+  to 65536 bytes).
+- Initialising a repository with no passphrase now logs a warning that it
+  will be unencrypted.
+- The API key is now only printed in full once, at generation time, instead
+  of in plaintext on every restart.
+
+### Added
+
+- CI now lints `api_server.py` (py_compile + ruff) and `run.sh` (shellcheck),
+  not just the Docker build.
+- Add-on README: "Encryption" section explaining why Home Assistant's own
+  backup encryption should be disabled for this destination in favor of
+  Borg's `repokey`.
+
 ## [1.1.0] - 2026-07-09
 
 ### Added
