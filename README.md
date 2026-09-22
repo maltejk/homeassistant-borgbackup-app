@@ -4,9 +4,7 @@
 
 A Home Assistant add-on that runs a [Borg](https://www.borgbackup.org/) backup repository
 manager. It exposes an HTTP API on port 8774 for the
-[BorgBackup HA integration](https://github.com/maltejk/homeassistant-borgbackup-integration), and
-optionally runs [borgmatic](https://torsion.org/borgmatic/) on a cron schedule for
-standalone encrypted, deduplicated backups independent of HA.
+[BorgBackup HA integration](https://github.com/maltejk/homeassistant-borgbackup-integration).
 
 This is AI generated code. Please find the instructions in [copilot-instructions.md](.github/copilot-instructions.md).
 
@@ -16,10 +14,10 @@ This is AI generated code. Please find the instructions in [copilot-instructions
 
 - **HA integration bridge** — REST API for the BorgBackup integration to list, upload,
   download, and delete backups through Home Assistant's native Backup UI
-- **Standalone scheduling** — optional cron-based borgmatic runs independent of HA
 - **SSH remote repositories** — supports `user@host:/path` repositories via private key
-- **Retention policies** — configurable keep-daily / keep-weekly / keep-monthly pruning
-  applied automatically after every upload
+- **Optional extra retention** — Home Assistant manages backup retention itself (since
+  2025.1); the add-on's own keep-daily / keep-weekly / keep-monthly pruning is off by
+  default and only needed as an additional safety net
 - **Encrypted** — full AES-256 encryption via Borg's native `repokey` mode
 - **Auto-generated API key** — generated on first start, never hardcoded
 
@@ -47,11 +45,17 @@ This is AI generated code. Please find the instructions in [copilot-instructions
 | `passphrase`       | `""`          | Repo encryption passphrase                                         |
 | `ssh_private_key`  | `""`          | Full content of the SSH private key (PEM format) for remote repos  |
 | `init_if_not_exists` | `true`      | Create the repo automatically on first start if it doesn't exist   |
-| `keep_daily`       | `7`           | Daily archives to retain (0 = disabled)                            |
-| `keep_weekly`      | `4`           | Weekly archives to retain (0 = disabled)                           |
-| `keep_monthly`     | `6`           | Monthly archives to retain (0 = disabled)                          |
-| `schedule_enabled` | `false`       | Enable standalone borgmatic cron schedule                          |
-| `schedule_cron`    | `"0 3 * * *"` | Cron expression for scheduled borgmatic runs                       |
+| `keep_daily`       | `0`           | Daily archives to retain (0 = disabled; see note below)            |
+| `keep_weekly`      | `0`           | Weekly archives to retain (0 = disabled; see note below)           |
+| `keep_monthly`     | `0`           | Monthly archives to retain (0 = disabled; see note below)          |
+
+> **Note:** Home Assistant manages backup retention itself (Settings → Backups →
+> "Backups to keep") since 2025.1 and deletes old backups through this add-on when
+> that limit is exceeded. The `keep_*` options are an **additional, optional** safety
+> net on top of that — leave them at `0` unless you specifically want the add-on to
+> also enforce its own limit (e.g. to protect against retention set to "forever" in
+> HA). Running both with different limits means the stricter one wins for a given
+> archive.
 
 > **Note:** With `init_if_not_exists: true` (the default) the add-on initialises
 > the repository automatically on first start — `repokey` encryption when a
@@ -65,7 +69,11 @@ This is AI generated code. Please find the instructions in [copilot-instructions
 
 ## API
 
-The add-on listens on port **8774**. All endpoints except `/api/health` require:
+The add-on listens on port **8774**, reachable from Home Assistant (and other add-ons)
+over the internal Supervisor network — the integration never needs the host port
+mapping. It's disabled by default; enable it in the add-on's **Network** tab only if
+something outside HA (e.g. an external Docker host) needs to reach the API directly,
+and note that this exposes plaintext HTTP. All endpoints except `/api/health` require:
 
 ```
 Authorization: Bearer <api_key>
@@ -99,20 +107,30 @@ additional storage overhead beyond the backup data itself.
 
 ---
 
-## Standalone scheduling
+## Encryption: use Borg's, not Home Assistant's
 
-Set `schedule_enabled: true` and a cron expression in `schedule_cron` to have bormatic
-run independently of Home Assistant. This is complementary to HA-triggered backups:
+Home Assistant encrypts backups for storage agents **by default**. An HA-encrypted tar
+is opaque, high-entropy data to Borg — it can't deduplicate or meaningfully compress it,
+which is most of the point of using Borg as a backend. For this destination, disable HA's
+own backup encryption and rely on Borg's `repokey` encryption (set a `passphrase` above)
+instead: same protection, but Borg can still dedupe/compress across archives.
 
-- HA-triggered backups: started from the HA Backup UI, streamed to this add-on
-- Standalone backups: run by borgmatic on schedule, back up `/backup` directly
+Whichever encryption you use, back up the key itself:
+```bash
+borg key export REPOSITORY encrypted-key-backup
+```
+Without it, a lost/corrupted repo's `repokey` (stored inside the repo) or a lost HA
+encryption password makes the backups permanently unreadable, encryption working exactly
+as intended.
 
 ---
 
 ## Troubleshooting
 
-**Add-on won't start** — Check that `repo_path` is set. For SSH repos, verify that the
-SSH host is reachable from the add-on network.
+**Add-on won't start** — `repo_path` is required; the add-on refuses to start without
+it. For SSH repos, verify that the SSH host is reachable from the add-on network; a
+first-time connection to a new host is accepted and its key remembered automatically
+(no manual `known_hosts` step needed).
 
 **Integration shows "cannot connect"** — Confirm the add-on is running (`Started`) and
 that HA can reach port 8774. Check the add-on network configuration.
