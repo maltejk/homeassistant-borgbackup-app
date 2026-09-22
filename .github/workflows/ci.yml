@@ -7,6 +7,26 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    name: Lint api_server.py + run.sh
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compile-check api_server.py
+        run: python -m py_compile borgbackup/api_server.py
+      - name: Ruff
+        run: |
+          pip install -q ruff
+          ruff check borgbackup/api_server.py
+      - name: ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: borgbackup
+          ignore_paths: translations
+
   build:
     name: Build Docker image
     runs-on: ubuntu-latest

@@ -207,6 +207,7 @@ def _ensure_repo() -> None:
         return
     probe = subprocess.run(
         ["borg", "info", REPO_PATH],
+        check=False,
         capture_output=True,
         text=True,
         env=_borg_env(),
@@ -237,6 +238,7 @@ def _ensure_repo() -> None:
     )
     init = subprocess.run(
         ["borg", "init", "--encryption", encryption, REPO_PATH],
+        check=False,
         capture_output=True,
         text=True,
         env=_borg_env(),
