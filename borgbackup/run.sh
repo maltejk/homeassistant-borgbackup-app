@@ -27,10 +27,20 @@ bashio::log.info "Enter this key in the BorgBackup integration to connect."
 # Requires hassio_api: true and a matching "discovery:" entry in config.yaml.
 # ---------------------------------------------------------------------------
 if bashio::supervisor.ping 2>/dev/null; then
+    # The Supervisor-assigned hostname is <repo-hash>-<slug> when the add-on
+    # was installed from a repository, and only "local-<slug>" for add-ons
+    # installed straight from a local directory. Ask the Supervisor rather
+    # than hardcoding the local-only form, or discovery hands the
+    # integration a host it can never resolve.
+    ADDON_HOSTNAME=$(bashio::addon.hostname)
+    if [ -z "$ADDON_HOSTNAME" ]; then
+        ADDON_HOSTNAME="local-borgbackup"
+    fi
     # Build the JSON config with python so the API key is safely encoded.
     export BORG_DISCOVERY_KEY="$API_KEY"
-    DISCOVERY_CONFIG=$(python3 -c "import json, os; print(json.dumps({'host': 'local-borgbackup', 'port': 8774, 'api_key': os.environ['BORG_DISCOVERY_KEY']}))")
-    unset BORG_DISCOVERY_KEY
+    export BORG_DISCOVERY_HOST="$ADDON_HOSTNAME"
+    DISCOVERY_CONFIG=$(python3 -c "import json, os; print(json.dumps({'host': os.environ['BORG_DISCOVERY_HOST'], 'port': 8774, 'api_key': os.environ['BORG_DISCOVERY_KEY']}))")
+    unset BORG_DISCOVERY_KEY BORG_DISCOVERY_HOST
     if curl -sf -X POST \
         -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
         -H "Content-Type: application/json" \
@@ -45,8 +55,9 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Write borgmatic config from add-on options
+# Read add-on options
 # ---------------------------------------------------------------------------
+bashio::config.require 'repo_path'
 REPO_PATH=$(bashio::config 'repo_path')
 PASSPHRASE=$(bashio::config 'passphrase')
 SSH_PRIVATE_KEY=$(bashio::config 'ssh_private_key')
@@ -55,51 +66,21 @@ KEEP_DAILY=$(bashio::config 'keep_daily')
 KEEP_WEEKLY=$(bashio::config 'keep_weekly')
 KEEP_MONTHLY=$(bashio::config 'keep_monthly')
 
-mkdir -p /root/.config/borgmatic /root/.ssh
+mkdir -p /root/.ssh
 chmod 700 /root/.ssh
 
-# Write SSH private key if provided
+# Persist SSH host keys across restarts so a remote repo doesn't hit an
+# interactive "Host key verification failed." prompt on every start.
+touch /data/known_hosts
+chmod 600 /data/known_hosts
+
+# Write SSH private key if provided. Named neutrally (not id_rsa/id_ed25519)
+# since the key type is whatever the user supplied; ssh identifies it by
+# file content, not name. A key pasted without a trailing newline is
+# rejected by some ssh versions, so make sure one is always present.
 if [ -n "$SSH_PRIVATE_KEY" ]; then
-    echo "$SSH_PRIVATE_KEY" > /root/.ssh/id_rsa
-    chmod 600 /root/.ssh/id_rsa
-fi
-
-# Write borgmatic config
-cat > /root/.config/borgmatic/config.yaml << BORGMATIC_EOF
-location:
-  repositories:
-    - path: ${REPO_PATH}
-      label: homeassistant
-  source_directories:
-    - /backup
-
-storage:
-  encryption_passphrase: ${PASSPHRASE}
-  archive_name_format: ha-{now}
-  borgmatic_source_directory: /var/borgmatic
-
-retention:
-  keep_daily: ${KEEP_DAILY}
-  keep_weekly: ${KEEP_WEEKLY}
-  keep_monthly: ${KEEP_MONTHLY}
-  prefix: ha-
-
-hooks:
-  healthchecks: null
-BORGMATIC_EOF
-
-# ---------------------------------------------------------------------------
-# Optional cron-based scheduled backups (borgmatic standalone mode)
-# ---------------------------------------------------------------------------
-SCHEDULE_ENABLED=$(bashio::config 'schedule_enabled')
-
-if [ "$SCHEDULE_ENABLED" = "true" ]; then
-    SCHEDULE_CRON=$(bashio::config 'schedule_cron')
-    bashio::log.info "Scheduling borgmatic at: ${SCHEDULE_CRON}"
-    echo "${SCHEDULE_CRON} root borgmatic --verbosity -1 >> /var/log/borgmatic.log 2>&1" \
-        > /etc/cron.d/borgmatic
-    chmod 0644 /etc/cron.d/borgmatic
-    crond -b
+    printf '%s\n' "$SSH_PRIVATE_KEY" > /root/.ssh/id_borg
+    chmod 600 /root/.ssh/id_borg
 fi
 
 # ---------------------------------------------------------------------------

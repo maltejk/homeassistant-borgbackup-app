@@ -5,15 +5,11 @@ slug: borgbackup
 description: >
   Borg backup repository manager with Home Assistant integration.
   Exposes an HTTP API for the BorgBackup HA integration to upload,
-  download, list, and delete backups. Also runs borgmatic for
-  scheduled deduplicating, encrypted backups.
+  download, list, and delete backups.
 url: https://github.com/maltejk/homeassistant-borgbackup-app
 arch:
   - aarch64
   - amd64
-  - armhf
-  - armv7
-  - i386
 startup: services
 boot: auto
 init: false
@@ -28,28 +24,23 @@ discovery:
   - borgbackup
 
 ports:
-  8774/tcp: 8774
+  8774/tcp: null
 ports_description:
-  8774/tcp: BorgBackup HTTP API
+  8774/tcp: BorgBackup HTTP API (only needed for Docker hosts outside HA; the integration reaches the add-on over the internal network)
 
 options:
-  repo_path: ""
   passphrase: ""
   ssh_private_key: ""
   init_if_not_exists: true
-  keep_daily: 7
-  keep_weekly: 4
-  keep_monthly: 6
-  schedule_enabled: false
-  schedule_cron: "0 3 * * *"
+  keep_daily: 0
+  keep_weekly: 0
+  keep_monthly: 0
 
 schema:
   repo_path: str
-  passphrase: str
-  ssh_private_key: str
+  passphrase: password
+  ssh_private_key: password?
   init_if_not_exists: bool
-  keep_daily: int
-  keep_weekly: int
-  keep_monthly: int
-  schedule_enabled: bool
-  schedule_cron: str
+  keep_daily: int(0,)
+  keep_weekly: int(0,)
+  keep_monthly: int(0,)

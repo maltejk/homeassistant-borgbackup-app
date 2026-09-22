@@ -23,14 +23,7 @@ configuration:
     description: Number of weekly backup archives to keep (0 = disabled).
   keep_monthly:
     name: Keep monthly backups
-    description: Number of monthly backup archives to keep (0 = disabled).
-  schedule_enabled:
-    name: Enable scheduled backups
     description: >
-      Run borgmatic on a cron schedule for standalone backup without
-      the Home Assistant integration triggering a backup.
-  schedule_cron:
-    name: Cron schedule
-    description: >
-      Cron expression for when to run borgmatic (e.g. "0 3 * * *" for
-      daily at 3 AM). Only used when schedule_enabled is true.
+      Number of monthly backup archives to keep (0 = disabled). Home
+      Assistant manages retention itself since 2025.1 — leave this at 0
+      unless you want the add-on to additionally enforce its own limit.
