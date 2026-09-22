@@ -13,11 +13,15 @@ if [ ! -f "$API_KEY_FILE" ]; then
     API_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(30))")
     echo "$API_KEY" > "$API_KEY_FILE"
     chmod 600 "$API_KEY_FILE"
+    # Printed only once, at generation time — with Supervisor discovery
+    # handling setup automatically, logging the live key on every restart
+    # is needless plaintext-credential exposure in the log.
+    bashio::log.info "Generated API key: ${API_KEY}"
+    bashio::log.info "Enter this key in the BorgBackup integration to connect."
 fi
 
 API_KEY=$(cat "$API_KEY_FILE")
-bashio::log.info "BorgBackup API key: ${API_KEY}"
-bashio::log.info "Enter this key in the BorgBackup integration to connect."
+bashio::log.info "BorgBackup API key ready (…${API_KEY: -4}). Supervisor discovery configures the integration automatically; for manual setup, read /data/api_key."
 
 # ---------------------------------------------------------------------------
 # Publish Supervisor discovery so the integration is offered for auto-setup.
