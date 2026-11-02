@@ -40,5 +40,3 @@ jobs:
           context: borgbackup
           push: false
           tags: borgbackup-addon:test
-          build-args: |
-            BUILD_FROM=ghcr.io/hassio-addons/base:17.2.4
