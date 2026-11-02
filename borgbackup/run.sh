@@ -86,6 +86,22 @@ chmod 600 /data/known_hosts
 if [ -n "$SSH_PRIVATE_KEY" ]; then
     printf '%s\n' "$SSH_PRIVATE_KEY" > /root/.ssh/id_borg
     chmod 600 /root/.ssh/id_borg
+else
+    # No key configured: generate one so remote repositories work without
+    # the user having to paste a multi-line private key into a single-line
+    # Supervisor option field. Persisted under /data so it survives add-on
+    # restarts; copied into /root/.ssh/id_borg below either way since that's
+    # ephemeral and api_server.py's SSH_KEY_PATH always points there.
+    mkdir -p /data/ssh
+    chmod 700 /data/ssh
+    if [ ! -f /data/ssh/id_borg ]; then
+        ssh-keygen -t ed25519 -f /data/ssh/id_borg -N "" -C "borgbackup-addon" -q
+        bashio::log.info "Generated SSH keypair for remote repositories."
+        bashio::log.info "Public key (add to the remote host's authorized_keys):"
+        bashio::log.info "$(cat /data/ssh/id_borg.pub)"
+    fi
+    cp /data/ssh/id_borg /root/.ssh/id_borg
+    chmod 600 /root/.ssh/id_borg
 fi
 
 # ---------------------------------------------------------------------------

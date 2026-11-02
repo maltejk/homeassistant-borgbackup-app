@@ -11,10 +11,12 @@ configuration:
       Encryption passphrase for the Borg repository. Leave empty only
       for unencrypted repositories (not recommended).
   ssh_private_key:
-    name: SSH private key
+    name: SSH private key (optional)
     description: >
-      Contents of the SSH private key used to connect to remote
-      repositories. Leave empty for local repositories.
+      Only needed to use your own existing SSH private key for remote
+      repositories. Leave empty and the add-on generates its own ed25519
+      keypair on first start, logging the public key to add to the remote
+      host's authorized_keys.
   keep_daily:
     name: Keep daily backups
     description: Number of daily backup archives to keep (0 = disabled).
