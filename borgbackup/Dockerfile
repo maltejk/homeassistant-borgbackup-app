@@ -1,5 +1,4 @@
-ARG BUILD_FROM
-FROM ${BUILD_FROM}
+FROM ghcr.io/hassio-addons/base:17.2.4
 
 # Install Borg (repository engine), the SSH client (remote repositories),
 # curl (Supervisor discovery), and the Python API-server dependencies.
