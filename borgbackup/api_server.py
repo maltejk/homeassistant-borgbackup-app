@@ -216,7 +216,13 @@ def _ensure_repo() -> None:
     if probe.returncode == 0:
         return
     stderr = (probe.stderr or "").strip()
-    if "does not exist" not in stderr.lower():
+    stderr_lower = stderr.lower()
+    # Borg reports a genuinely missing path as "does not exist", but a path
+    # that exists as an empty/uninitialised directory — as some hosted repo
+    # providers (e.g. BorgBase) pre-provision — as "is not a valid
+    # repository". Both mean "needs init"; anything else (wrong passphrase,
+    # connectivity) must not be auto-"fixed" by re-initialising over it.
+    if "does not exist" not in stderr_lower and "is not a valid repository" not in stderr_lower:
         _LOG.warning(
             "Could not verify repository at %s; not auto-initialising: %s",
             REPO_PATH,
